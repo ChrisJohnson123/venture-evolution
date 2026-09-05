@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Venture Evolution Lab</title>
+  <style>
+    :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e9eef7;background:#0b1020}
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#11182a);min-height:100vh}
+    main{max-width:1100px;margin:auto;padding:20px}
+    h1{font-size:clamp(28px,6vw,52px);margin:8px 0}
+    p{color:#9eabc2}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .card{background:#151e32;border:1px solid #26324c;border-radius:16px;padding:16px}
+    .label{color:#92a0b8;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+    .big{font-size:28px;font-weight:700;margin-top:6px}
+    .champ{margin-top:14px}
+    .champ h2{margin:6px 0}
+    .table{margin-top:14px;overflow:auto;border-radius:16px;border:1px solid #26324c}
+    table{width:100%;border-collapse:collapse;min-width:760px;background:#151e32}
+    th,td{padding:13px 14px;text-align:left;border-bottom:1px solid #26324c}
+    th{font-size:12px;color:#92a0b8}
+    td{font-size:14px}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#202c46;color:#c9d5e8;font-size:12px}
+    .status{margin-top:12px;font-size:13px}
+    @media(max-width:720px){.grid{grid-template-columns:repeat(2,1fr)}main{padding:14px}.big{font-size:23px}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="label">Autonomous business evolution simulator</div>
+  <h1>Venture Evolution Lab</h1>
+  <p>This dashboard reads the latest saved generation from PostgreSQL. The worker continues evolving ventures on the server even when your phone is closed.</p>
+
+  <section class="grid">
+    <div class="card"><div class="label">Generation</div><div id="generation" class="big">—</div></div>
+    <div class="card"><div class="label">Virtual capital</div><div id="capital" class="big">—</div></div>
+    <div class="card"><div class="label">Killed</div><div id="killed" class="big">—</div></div>
+    <div class="card"><div class="label">Best fitness</div><div id="fitness" class="big">—</div></div>
+  </section>
+
+  <section class="card champ">
+    <div class="label">Current champion</div>
+    <h2 id="champion">Loading…</h2>
+    <p id="pitch"></p>
+    <span id="evidence" class="pill"></span>
+    <span id="probability" class="pill"></span>
+    <span id="budget" class="pill"></span>
+  </section>
+
+  <section class="table">
+    <table>
+      <thead>
+        <tr><th>Venture</th><th>Type</th><th>Fitness</th><th>Evidence</th><th>Profit probability</th><th>Capital</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+  <p id="status" class="status">Connecting to simulation…</p>
+</main>
+
+<script>
+const money = n => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(Number(n||0));
+
+async function refresh(){
+  const status = document.getElementById("status");
+  try{
+    const r = await fetch("/api/state",{cache:"no-store"});
+    if(!r.ok) throw new Error("Server returned "+r.status);
+    const data = await r.json();
+    const s = data.state;
+    const ventures = data.ventures || [];
+    const c = ventures[0];
+
+    document.getElementById("generation").textContent = s?.generation ?? "—";
+    document.getElementById("capital").textContent = s ? money(s.capital) : "—";
+    document.getElementById("killed").textContent = Number(s?.total_killed||0).toLocaleString("en-GB");
+    document.getElementById("fitness").textContent = c ? Number(c.fitness).toFixed(1) : "—";
+
+    document.getElementById("champion").textContent = c?.name || "No ventures yet";
+    document.getElementById("pitch").textContent = c ? `${c.type}: ${c.solution} for ${c.problem}.` : "";
+    document.getElementById("evidence").textContent = c ? `Evidence ${Number(c.evidence).toFixed(0)}/100` : "";
+    document.getElementById("probability").textContent = c ? `Profit signal ${Number(c.probability).toFixed(0)}%` : "";
+    document.getElementById("budget").textContent = c ? `Test ${money(c.testBudget)}` : "";
+
+    document.getElementById("rows").innerHTML = ventures.slice(0,10).map(v => `
+      <tr>
+        <td><strong>${v.name}</strong><br><span style="color:#92a0b8">${v.problem}</span></td>
+        <td>${v.type}</td>
+        <td>${Number(v.fitness).toFixed(1)}</td>
+        <td>${Number(v.evidence).toFixed(0)}</td>
+        <td>${Number(v.probability).toFixed(0)}%</td>
+        <td>${money(v.allocated)}</td>
+      </tr>`).join("");
+
+    const updated = s?.updated_at ? new Date(s.updated_at).toLocaleString("en-GB") : "not yet";
+    status.textContent = `Last server update: ${updated}. Refreshes automatically every 15 seconds.`;
+  }catch(err){
+    status.textContent = "Could not reach the server yet. This is normal until Railway and PostgreSQL are connected.";
+  }
+}
+
+refresh();
+setInterval(refresh,15000);
+</script>
+</body>
+</html>
