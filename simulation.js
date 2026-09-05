@@ -89,6 +89,25 @@ export function makeVenture(parent = null) {
   });
 }
 
+export function makeEvidenceVenture(opportunity) {
+  return score({
+    id: crypto.randomUUID(),
+    name: String(opportunity.name || ventureName()).slice(0, 120),
+    type: String(opportunity.type || "Hybrid").slice(0, 80),
+    problem: String(opportunity.problem || "Evidence-backed market pain").slice(0, 500),
+    solution: String(opportunity.solution || "Evidence-backed solution").slice(0, 500),
+    demand: clamp(Number(opportunity.demand_score || 50)),
+    margin: clamp(Number(opportunity.margin_score || 50)),
+    evidence: clamp(Number(opportunity.evidence_score || 50)),
+    competition: clamp(Number(opportunity.competition_score || 50)),
+    viral: clamp(Number(opportunity.virality_score || 50)),
+    repeat: clamp(Number(opportunity.repeat_score || 50)),
+    defensibility: clamp(Number(opportunity.defensibility_score || 50)),
+    risk: clamp(Number(opportunity.risk_score || 50)),
+    allocated: 0
+  });
+}
+
 export function createPopulation(size = 1000) {
   return Array.from({ length: size }, () => makeVenture());
 }
@@ -107,6 +126,17 @@ export function allocateCapital(ventures, capital) {
   });
 
   return ranked;
+}
+
+export function injectResearchVentures(ventures, opportunities, capital) {
+  if (!Array.isArray(opportunities) || opportunities.length === 0) {
+    return allocateCapital(ventures, capital);
+  }
+
+  const ranked = [...ventures].sort((a, b) => b.fitness - a.fitness);
+  const evidenceVentures = opportunities.map(makeEvidenceVenture);
+  const keepCount = Math.max(0, ranked.length - evidenceVentures.length);
+  return allocateCapital([...ranked.slice(0, keepCount), ...evidenceVentures], capital);
 }
 
 export function evolveGeneration(ventures, capital) {
