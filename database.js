@@ -12,7 +12,8 @@ export const pool = hasDatabase
 
 const memory = {
   state: null,
-  ventures: []
+  ventures: [],
+  research: null
 };
 
 export async function initDb() {
@@ -56,6 +57,18 @@ export async function initDb() {
 
     CREATE INDEX IF NOT EXISTS ventures_generation_fitness_idx
       ON ventures (generation, fitness DESC);
+
+    CREATE TABLE IF NOT EXISTS research_runs (
+      id BIGSERIAL PRIMARY KEY,
+      generation INTEGER NOT NULL,
+      model TEXT NOT NULL,
+      opportunity_count INTEGER NOT NULL,
+      payload JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS research_runs_created_idx
+      ON research_runs (created_at DESC);
   `);
 }
 
@@ -153,4 +166,47 @@ export async function saveGeneration({ generation, capital, totalKilled, venture
   } finally {
     client.release();
   }
+}
+
+export async function saveResearchRun({ generation, model, opportunities, createdAt }) {
+  const record = {
+    generation,
+    model,
+    opportunities,
+    created_at: createdAt || new Date().toISOString()
+  };
+
+  if (!pool) {
+    memory.research = record;
+    return record;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO research_runs (generation, model, opportunity_count, payload, created_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5)
+     RETURNING id, generation, model, opportunity_count, payload, created_at`,
+    [generation, model, opportunities.length, JSON.stringify({ opportunities }), record.created_at]
+  );
+  return rows[0];
+}
+
+export async function getLatestResearchRun() {
+  if (!pool) return memory.research;
+
+  const { rows } = await pool.query(
+    `SELECT id, generation, model, opportunity_count, payload, created_at
+     FROM research_runs
+     ORDER BY created_at DESC
+     LIMIT 1`
+  );
+
+  if (!rows[0]) return null;
+  return {
+    id: rows[0].id,
+    generation: rows[0].generation,
+    model: rows[0].model,
+    opportunity_count: rows[0].opportunity_count,
+    opportunities: rows[0].payload?.opportunities || [],
+    created_at: rows[0].created_at
+  };
 }
