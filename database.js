@@ -1,16 +1,26 @@
 import pg from "pg";
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is missing. Add a PostgreSQL service in Railway and set DATABASE_URL.");
-}
+const hasDatabase = Boolean(process.env.DATABASE_URL);
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
-});
+export const pool = hasDatabase
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
+    })
+  : null;
+
+const memory = {
+  state: null,
+  ventures: []
+};
 
 export async function initDb() {
+  if (!pool) {
+    console.warn("DATABASE_URL is not set. Running with in-memory storage until PostgreSQL is connected.");
+    return;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_state (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -50,13 +60,22 @@ export async function initDb() {
 }
 
 export async function getState() {
+  if (!pool) return memory.state;
+
   const { rows } = await pool.query("SELECT * FROM app_state WHERE id = 1");
   return rows[0] ?? null;
 }
 
 export async function getLatestVentures(limit = 1000) {
+  if (!pool) {
+    return [...memory.ventures]
+      .sort((a, b) => b.fitness - a.fitness)
+      .slice(0, limit);
+  }
+
   const state = await getState();
   if (!state) return [];
+
   const { rows } = await pool.query(
     `SELECT
        id, name, type, problem, solution,
@@ -74,6 +93,19 @@ export async function getLatestVentures(limit = 1000) {
 }
 
 export async function saveGeneration({ generation, capital, totalKilled, ventures }) {
+  if (!pool) {
+    memory.state = {
+      id: 1,
+      generation,
+      capital,
+      total_killed: totalKilled,
+      paused: false,
+      updated_at: new Date().toISOString()
+    };
+    memory.ventures = ventures.map((v) => ({ ...v }));
+    return;
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
