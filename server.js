@@ -8,7 +8,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = process.env.PORT || 3000;
+const railwayPort = Number(process.env.PORT || 3000);
+const targetPort = 3000;
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "venture-evolution" });
@@ -31,9 +32,14 @@ app.get("/", (_req, res) => {
 
 await initDb();
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`Venture Evolution dashboard listening on port ${port}`);
-});
+const listen = (port) => {
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`Venture Evolution dashboard listening on port ${port}`);
+  });
+};
+
+listen(railwayPort);
+if (railwayPort !== targetPort) listen(targetPort);
 
 startWorker().catch((err) => {
   console.error("Worker failed to start:", err);
