@@ -10,28 +10,33 @@
     body{margin:0;background:linear-gradient(180deg,#0b1020,#11182a);min-height:100vh}
     main{max-width:1100px;margin:auto;padding:20px}
     h1{font-size:clamp(28px,6vw,52px);margin:8px 0}
+    h2,h3{margin:6px 0}
     p{color:#9eabc2}
+    a{color:#b8c8ff}
     .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
     .card{background:#151e32;border:1px solid #26324c;border-radius:16px;padding:16px}
     .label{color:#92a0b8;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
     .big{font-size:28px;font-weight:700;margin-top:6px}
-    .champ{margin-top:14px}
-    .champ h2{margin:6px 0}
+    .champ,.research{margin-top:14px}
     .table{margin-top:14px;overflow:auto;border-radius:16px;border:1px solid #26324c}
     table{width:100%;border-collapse:collapse;min-width:760px;background:#151e32}
     th,td{padding:13px 14px;text-align:left;border-bottom:1px solid #26324c}
     th{font-size:12px;color:#92a0b8}
     td{font-size:14px}
-    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#202c46;color:#c9d5e8;font-size:12px}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#202c46;color:#c9d5e8;font-size:12px;margin:2px 3px 2px 0}
     .status{margin-top:12px;font-size:13px}
+    .research-list{display:grid;gap:10px;margin-top:12px}
+    .research-item{border-top:1px solid #26324c;padding-top:12px}
+    .sources{margin:8px 0 0;padding-left:18px;color:#9eabc2;font-size:13px}
+    .muted{color:#92a0b8}
     @media(max-width:720px){.grid{grid-template-columns:repeat(2,1fr)}main{padding:14px}.big{font-size:23px}}
   </style>
 </head>
 <body>
 <main>
-  <div class="label">Autonomous business evolution simulator</div>
+  <div class="label">Autonomous business evolution laboratory</div>
   <h1>Venture Evolution Lab</h1>
-  <p>This dashboard reads the latest saved generation from PostgreSQL. The worker continues evolving ventures on the server even when your phone is closed.</p>
+  <p>The cloud worker evolves ventures continuously and stores each generation in PostgreSQL. When AI research is enabled, live web evidence is periodically injected into the evolutionary pool.</p>
 
   <section class="grid">
     <div class="card"><div class="label">Generation</div><div id="generation" class="big">—</div></div>
@@ -49,6 +54,13 @@
     <span id="budget" class="pill"></span>
   </section>
 
+  <section class="card research">
+    <div class="label">Live market intelligence</div>
+    <h2 id="researchStatus">Checking AI research…</h2>
+    <p id="researchMeta"></p>
+    <div id="researchList" class="research-list"></div>
+  </section>
+
   <section class="table">
     <table>
       <thead>
@@ -62,8 +74,10 @@
 
 <script>
 const money = n => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(Number(n||0));
+const esc = v => String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+const safeUrl = value => { try { const u = new URL(String(value)); return (u.protocol === "http:" || u.protocol === "https:") ? u.href : null; } catch { return null; } };
 
-async function refresh(){
+async function refreshState(){
   const status = document.getElementById("status");
   try{
     const r = await fetch("/api/state",{cache:"no-store"});
@@ -86,8 +100,8 @@ async function refresh(){
 
     document.getElementById("rows").innerHTML = ventures.slice(0,10).map(v => `
       <tr>
-        <td><strong>${v.name}</strong><br><span style="color:#92a0b8">${v.problem}</span></td>
-        <td>${v.type}</td>
+        <td><strong>${esc(v.name)}</strong><br><span class="muted">${esc(v.problem)}</span></td>
+        <td>${esc(v.type)}</td>
         <td>${Number(v.fitness).toFixed(1)}</td>
         <td>${Number(v.evidence).toFixed(0)}</td>
         <td>${Number(v.probability).toFixed(0)}%</td>
@@ -97,10 +111,57 @@ async function refresh(){
     const updated = s?.updated_at ? new Date(s.updated_at).toLocaleString("en-GB") : "not yet";
     status.textContent = `Last server update: ${updated}. Refreshes automatically every 15 seconds.`;
   }catch(err){
-    status.textContent = "Could not reach the server yet. This is normal until Railway and PostgreSQL are connected.";
+    status.textContent = "Could not reach the simulation server.";
   }
 }
 
+async function refreshResearch(){
+  const title = document.getElementById("researchStatus");
+  const meta = document.getElementById("researchMeta");
+  const list = document.getElementById("researchList");
+  try{
+    const r = await fetch("/api/research",{cache:"no-store"});
+    if(!r.ok) throw new Error("research endpoint failed");
+    const data = await r.json();
+    if(!data.enabled){
+      title.textContent = "AI research is ready but not activated";
+      meta.textContent = "Add OPENAI_API_KEY in Railway to let the system search the live web and inject evidence-backed ventures automatically.";
+      list.innerHTML = "";
+      return;
+    }
+
+    title.textContent = `AI research active — ${data.model}`;
+    if(!data.latest){
+      meta.textContent = "Waiting for the first live research cycle.";
+      list.innerHTML = "";
+      return;
+    }
+
+    const when = data.latest.created_at ? new Date(data.latest.created_at).toLocaleString("en-GB") : "recently";
+    meta.textContent = `Latest research: generation ${data.latest.generation}, ${when}.`;
+    const ops = data.latest.opportunities || [];
+    list.innerHTML = ops.slice(0,6).map(op => {
+      const sources = (op.evidence_sources || []).map(s => {
+        const u = safeUrl(s.url);
+        const titleText = esc(s.title || s.url);
+        const signal = esc(s.signal || "");
+        return `<li>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${titleText}</a>` : titleText}${signal ? ` — ${signal}` : ""}</li>`;
+      }).join("");
+      return `<div class="research-item">
+        <h3>${esc(op.name)}</h3>
+        <div><span class="pill">Demand ${Number(op.demand_score||0).toFixed(0)}</span><span class="pill">Evidence ${Number(op.evidence_score||0).toFixed(0)}</span><span class="pill">Competition ${Number(op.competition_score||0).toFixed(0)}</span></div>
+        <p><strong>${esc(op.problem)}</strong><br>${esc(op.solution)}</p>
+        <div class="muted">Target: ${esc(op.customer)} · Suggested validation: ${money(op.validation_budget_gbp)}</div>
+        ${sources ? `<ul class="sources">${sources}</ul>` : ""}
+      </div>`;
+    }).join("");
+  }catch(err){
+    title.textContent = "AI research status unavailable";
+    meta.textContent = "The evolution engine can continue while market intelligence reconnects.";
+  }
+}
+
+async function refresh(){ await Promise.all([refreshState(),refreshResearch()]); }
 refresh();
 setInterval(refresh,15000);
 </script>
